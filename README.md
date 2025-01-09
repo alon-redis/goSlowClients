@@ -63,6 +63,10 @@
      ```bash
      go get github.com/go-redis/redis/v8
      ```
+   - create file main.go with the script content:
+     ```bash
+     nano main.go
+     ```
 
 ## Build and Run the Script
 1. **Build the binary**:
