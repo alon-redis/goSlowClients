@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net"
@@ -16,11 +17,22 @@ import (
 
 const MB_TO_BYTES = 1048576
 
-func populateData(redisHost string, redisPort int, numConnections int, initialKeySize int, delta int) {
-	rdb := redis.NewClient(&redis.Options{
-		Addr: fmt.Sprintf("%s:%d", redisHost, redisPort),
-	})
+func createRedisClient(redisHost string, redisPort int, useTLS bool) *redis.Client {
+	addr := fmt.Sprintf("%s:%d", redisHost, redisPort)
+	options := &redis.Options{
+		Addr: addr,
+	}
+	if useTLS {
+		options.TLSConfig = &tls.Config{
+			InsecureSkipVerify: true,
+		}
+		log.Println("Using secured TLS connection to Redis.")
+	}
+	return redis.NewClient(options)
+}
 
+func populateData(redisHost string, redisPort int, numConnections int, initialKeySize int, delta int, useTLS bool) {
+	rdb := createRedisClient(redisHost, redisPort, useTLS)
 	defer rdb.Close()
 
 	var wg sync.WaitGroup
@@ -44,13 +56,22 @@ func populateData(redisHost string, redisPort int, numConnections int, initialKe
 	log.Println("All connections closed after populating data.")
 }
 
-func fetchDataSlowly(redisHost string, redisPort int, numConnections int, sleepTime int) {
+func fetchDataSlowly(redisHost string, redisPort int, numConnections int, sleepTime int, useTLS bool) {
 	var wg sync.WaitGroup
 	for i := 1; i <= numConnections; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", redisHost, redisPort))
+			var conn net.Conn
+			var err error
+			if useTLS {
+				conn, err = tls.Dial("tcp", fmt.Sprintf("%s:%d", redisHost, redisPort), &tls.Config{
+					InsecureSkipVerify: true,
+				})
+				log.Printf("Using secured TLS connection for key_%d", i)
+			} else {
+				conn, err = net.Dial("tcp", fmt.Sprintf("%s:%d", redisHost, redisPort))
+			}
 			if err != nil {
 				log.Printf("Error connecting to Redis for key_%d: %v", i, err)
 				return
@@ -77,8 +98,8 @@ func fetchDataSlowly(redisHost string, redisPort int, numConnections int, sleepT
 }
 
 func main() {
-	if len(os.Args) < 7 {
-		log.Fatalf("Usage: %s <redis_host> <redis_port> <num_connections> <initial_key_size_MB> <delta_MB> <sleep_time_seconds> <noflush>", os.Args[0])
+	if len(os.Args) < 8 {
+		log.Fatalf("Usage: %s <redis_host> <redis_port> <num_connections> <initial_key_size_MB> <delta_MB> <sleep_time_seconds> <noflush> <use_tls>", os.Args[0])
 	}
 
 	redisHost := os.Args[1]
@@ -88,11 +109,10 @@ func main() {
 	delta, _ := strconv.Atoi(os.Args[5])
 	sleepTime, _ := strconv.Atoi(os.Args[6])
 	noflush := os.Args[7] == "true"
+	useTLS := os.Args[8] == "true"
 
 	if !noflush {
-		rdb := redis.NewClient(&redis.Options{
-			Addr: fmt.Sprintf("%s:%d", redisHost, redisPort),
-		})
+		rdb := createRedisClient(redisHost, redisPort, useTLS)
 		defer rdb.Close()
 		_, err := rdb.FlushAll(context.Background()).Result()
 		if err != nil {
@@ -102,8 +122,8 @@ func main() {
 	}
 
 	log.Println("Starting population stage...")
-	populateData(redisHost, redisPort, numConnections, initialKeySize, delta)
+	populateData(redisHost, redisPort, numConnections, initialKeySize, delta, useTLS)
 
 	log.Println("Starting fetch stage...")
-	fetchDataSlowly(redisHost, redisPort, numConnections, sleepTime)
+	fetchDataSlowly(redisHost, redisPort, numConnections, sleepTime, useTLS)
 }
