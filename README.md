@@ -1,4 +1,3 @@
-# goSlowClients
 # differentBufferSize - Go Script
 
 ## Overview
@@ -32,7 +31,7 @@
 ./differentBufferSize 127.0.0.1 6379 10 1 1 2 false
 ```
 
-## Installation
+# GO Installation
 1. **Install Go**:
    - Follow the instructions [here](https://go.dev/doc/install) or use:
      ```bash
